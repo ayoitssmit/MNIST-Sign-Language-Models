@@ -1,0 +1,13 @@
+# Datasets
+archive (9)/
+
+# Generated Outputs
+# outputs/ and Results/ are now tracked
+*.png
+__pycache__/
+
+# Virtual Environment
+.venv/
+
+# Model Checkpoints (Optional - kept if user wants to push model, but typically ignored. User didn't specify, I'll keep .pth if it's not too huge, 2MB is fine)
+# *.pth
