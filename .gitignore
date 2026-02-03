@@ -3,7 +3,6 @@ archive (9)/
 
 # Generated Outputs
 # outputs/ and Results/ are now tracked
-*.png
 __pycache__/
 
 # Virtual Environment
