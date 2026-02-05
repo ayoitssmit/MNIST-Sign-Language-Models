@@ -1,91 +1,96 @@
-# MNIST Sign Language Detection Using CNNs
+# MNIST Sign Language Detection
+
+This project implements a deep learning-based system to classify American Sign Language (ASL) hand gestures using the Sign Language MNIST dataset. It features two distinct model architectures: a custom Convolutional Neural Network (CNN) and a fine-tuned MobileNetV2, allowing for performance comparison and deployment flexibility.
 
 ## Overview
-This project implements a deep learning-based system designed to classify American Sign Language (ASL) hand gestures using the Sign Language MNIST dataset. The system utilizes a custom Convolutional Neural Network (CNN) to process grayscale image data, train a robust classifier, and evaluate performance on unseen test data.
+The system processes grayscale image data to train robust classifiers for 24 distinct hand signs (Letters A-Z, excluding J and Z). It includes a complete pipeline for training, evaluation, validation, and model visualization.
 
-The framework is built to be modular and easy to execute, providing visualization of training progress and test predictions. The repository includes pre-generated outputs and results for reference.
-
-## Key Objectives
-- **Accurate Classification**: Detect and classify 24 distinct hand signs (excluding J and Z) from the MNIST-style dataset.
-- **Model Optimization**: Utilize a custom CNN architecture with batch normalization and dropout to prevent overfitting.
-- **Visual Validation**: Generate interpretable visualizations of training history, sample images, and prediction results.
-- **Production-Ready Structure**: distinct separation of training, evaluation, and visualization modules.
+## Key Features
+- **Dual Architecture**:
+  - **Custom CNN**: A lightweight, 3-block architecture optimized for quick training and efficiency.
+  - **MobileNetV2**: A fine-tuned, pre-trained model utilizing transfer learning for enhanced accuracy and feature extraction.
+- **Robustness**: Implements data augmentation (rotation, flipping), batch normalization, and dropout to prevent overfitting.
+- **Visualization Suite**:
+  - Training accuracy and loss curves.
+  - Confusion matrices for detailed error analysis.
+  - Computation graph visualization (`torchviz`).
+  - ONNX model export for interoperability.
 
 ## Data
-- **Dataset**: Sign Language MNIST (28x28 grayscale images)
-- **Classes**: 24 active classes (Letters A-Z, excluding J and Z which require motion)
-- **Format**: CSV files (`sign_mnist_train.csv`, `sign_mnist_test.csv`) containing pixel values and labels.
-- **Source**: Kaggle (assumed source for `archive (9)` dataset)
-
-## Feature Engineering
-At each step, raw pixel data is processed:
-- **Normalization**: Pixel values (0-255) are scaled to (0-1) for stable training.
-- **Reshaping**: Flat vectors are reshaped into `(1, 28, 28)` tensors to preserve spatial structure.
-- **Batching**: Data is loaded in batches (default: 64) for efficient gradient updates.
-
-## Models
-### 1. Custom CNN Architecture
-A specialized convolutional network designed for image classification:
-- **Feature Estimator**: 3 Blocks of [Conv2d -> BatchNorm -> ReLU -> MaxPool] to extract hierarchical features.
-- **Classifier**: Fully connected layers with Dropout (0.5) to map features to class probabilities.
-- **Optimization**: Trained using Adam optimizer with Learning Rate Scheduler (`ReduceLROnPlateau`).
-
-### 2. DenseNet (Alternative)
-- The codebase also includes `densenet.py`, suggesting experimentation with DenseNet architectures for potentially higher accuracy.
-
-## Alerting & Monitoring (Visualization)
-The system automatically generates outputs to monitor performance:
-- **Training Samples**: `training_samples.png` shows batch inputs.
-- **Training History**: `training_history.png` plots accuracy and loss curves over epochs.
-- **Test Predictions**: `test_predictions.png` and `test_result.png` display model predictions vs ground truth with color-coded validity (Green=Correct, Red=Incorrect).
-
-## Evaluation Methodology
-Performance is evaluated using standard classification metrics:
-- **Accuracy**: Percentage of correctly classified signs on the test set.
-- **Loss**: Cross-Entropy Loss to measure confidence calibration.
-- **Visual Inspection**: Direct comparison of predicted labels against ground truth images.
-
-## Key Findings
-- **High Accuracy**: The custom CNN achieves competitive accuracy on the test set.
-- **Robustness**: The model generalizes well to unseen data, as evidenced by the validation and test accuracy alignment.
-- **Efficiency**: The architecture balances depth and speed, suitable for real-time inference on standard hardware.
+- **Dataset**: Sign Language MNIST (28x28 grayscale images).
+- **Classes**: 24 active classes (0-25, excluding 9=J and 25=Z).
+- **Input Processing**: Reshaped to `(1, 28, 28)` for Custom CNN and resized/repeated to `(3, 64, 64)` for MobileNetV2.
 
 ## Project Structure
 ```
 CL-AI/
-├── custom_cnn.py       # Main training script
-├── test_model.py       # Evaluation and testing script
-├── densenet.py         # Alternative model architecture
-├── visualize.py        # plotting utilities
-├── CNN.pth             # Trained model weights
-├── .gitignore          # Git configuration
+├── custom_cnn.py       # Training script for Custom CNN
+├── mobilenetv2.py      # Training script for MobileNetV2 (Fine-tuning)
+├── test_model.py       # Testing & evaluation script (Targeting MobileNetV2)
+├── visualize.py        # Model architecture visualization and ONNX export
+├── custom_cnn.pth      # Saved weights for Custom CNN
+├── mv2slfinal.pth      # Saved weights for MobileNetV2
+├── outputs/            # Generated artifacts (ONNX model, architecture diagrams)
+├── .venv/              # Virtual environment
 └── README.md           # Project documentation
 ```
-*(Note: Dataset `archive (9)` is excluded from version control. Generated outputs and results are included)*
 
-## How to Run
-### Prerequisites
-- Python 3.x
-- Dependencies: `torch`, `pandas`, `numpy`, `matplotlib`
+## Installation
 
-### Setup
-```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install torch pandas numpy matplotlib
-```
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/ayoitssmit/MNIST-Sign-Language-Models.git
+   cd MNIST-Sign-Language-Models
+   ```
 
-### Training
-To train the model and save weights (`CNN.pth`):
+2. **Set up Virtual Environment**:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # Windows: .venv\Scripts\activate
+   ```
+
+3. **Install Dependencies**:
+   ```bash
+   pip install torch torchvision pandas numpy matplotlib seaborn scikit-learn torchviz torchsummary
+   ```
+   *(Note: `torchviz` requires GraphViz to be installed on your system)*
+
+## Usage
+
+### 1. Training Custom CNN
+Trains the custom 3-block CNN from scratch.
 ```bash
 python custom_cnn.py
 ```
+- **Output**: Saves `custom_cnn.pth`, plots training history and confusion matrix.
 
-### Testing
-To evaluate the trained model on the test set:
+### 2. Training MobileNetV2
+Fine-tunes a pre-trained MobileNetV2 model.
+```bash
+python mobilenetv2.py
+```
+- **Output**: Saves `mobilenetv2_mnist_sl.pth`, logs detailed metrics.
+
+### 3. Evaluation & Testing
+Evaluates the trained MobileNetV2 model (`mv2slfinal.pth`) against the test set.
 ```bash
 python test_model.py
 ```
+- **Output**: Classification report, accuracy metrics, and prediction visualizations (`test_result_mv2.png`).
 
-**Note**: Ensure the dataset is located at the path specified in the scripts (currently configured for `archive (9)`), or update the paths in `custom_cnn.py` and `test_model.py`.
+### 4. Visualization & Export
+Generates a visual representation of the model architecture and exports it to ONNX format.
+```bash
+python visualize.py
+```
+- **Output**: `outputs/mobilenetv2_architecture.png`, `outputs/mobilenetv2_model.onnx`.
+
+## Results
+- **Custom CNN**: Balanced performance, lightweight.
+- **MobileNetV2**: Higher accuracy potential due to transfer learning, robust against variations.
+
+## Evaluation
+Performance is measured using:
+- **Accuracy**: Overall correct classification percentage.
+- **Cross-Entropy Loss**: Model confidence measure.
+- **Confusion Matrix**: To identify specific class misclassifications.
