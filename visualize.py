@@ -1,41 +1,60 @@
 import torch
+import torch.nn as nn
 import os
 from torchsummary import summary
 from torchviz import make_dot
-
-# ----------------------------------
-# IMPORT YOUR MODEL CLASS
-# ----------------------------------
-from custom_cnn import CustomCNN
+from torchvision.models import mobilenet_v2
 
 # ----------------------------------
 # CONFIGURATION
 # ----------------------------------
-DEVICE = torch.device("cpu")      # use CPU for visualization
-INPUT_SHAPE = (1, 28, 28)         # (C, H, W)
-MODEL_PATH = "CNN.pth"
+DEVICE = torch.device("cpu")   # change to "cuda" if needed
+INPUT_SHAPE = (3, 64, 64)      # ✅ MobileNetV2 input
+MODEL_PATH = "mv2slfinal.pth"  # ✅ correct file
 OUTPUT_DIR = "outputs"
 
-# create output directory if not exists
+NUM_CLASSES = 24
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ----------------------------------
-# LOAD MODEL AND WEIGHTS
+# MODEL DEFINITION (MATCH TRAINING)
 # ----------------------------------
-model = CustomCNN(num_classes=26).to(DEVICE)
+class MobileNetV2_SL(nn.Module):
+    def __init__(self, num_classes=24):
+        super().__init__()
+        self.backbone = mobilenet_v2(weights=None)
+
+        # ✅ MATCHES TRAINING ARCHITECTURE EXACTLY
+        self.backbone.classifier = nn.Sequential(
+            nn.Dropout(0.3),
+            nn.Linear(1280, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, num_classes)
+        )
+
+    def forward(self, x):
+        return self.backbone(x)
+
+
+# ----------------------------------
+# LOAD MODEL
+# ----------------------------------
+model = MobileNetV2_SL(num_classes=NUM_CLASSES).to(DEVICE)
 model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 model.eval()
 
-print("✅ Model loaded successfully")
+print("✅ MobileNetV2 model loaded successfully")
 
 # ----------------------------------
-# PRINT MODEL SUMMARY
+# MODEL SUMMARY
 # ----------------------------------
 print("\n🔹 MODEL SUMMARY\n")
 summary(model, INPUT_SHAPE)
 
 # ----------------------------------
-# CREATE DUMMY INPUT
+# DUMMY INPUT
 # ----------------------------------
 dummy_input = torch.randn(1, *INPUT_SHAPE).to(DEVICE)
 
@@ -45,33 +64,36 @@ dummy_input = torch.randn(1, *INPUT_SHAPE).to(DEVICE)
 output = model(dummy_input)
 
 # ----------------------------------
-# VISUALIZE ARCHITECTURE + DATA FLOW
+# VISUALIZE COMPUTATION GRAPH
 # ----------------------------------
 graph = make_dot(
     output,
-    params=dict(model.named_parameters()),
-    show_attrs=False,
-    show_saved=False
+    params=dict(model.named_parameters())
 )
 
 graph.render(
-    os.path.join(OUTPUT_DIR, "cnn_architecture"),
+    os.path.join(OUTPUT_DIR, "mobilenetv2_architecture"),
     format="png"
 )
 
-print("✅ Architecture image saved at: outputs/cnn_architecture.png")
+print("✅ Architecture image saved at: outputs/mobilenetv2_architecture.png")
 
 # ----------------------------------
-# EXPORT MODEL TO ONNX (FOR NETRON)
+# EXPORT TO ONNX
 # ----------------------------------
 torch.onnx.export(
     model,
     dummy_input,
-    os.path.join(OUTPUT_DIR, "cnn_model.onnx"),
+    os.path.join(OUTPUT_DIR, "mobilenetv2_model.onnx"),
     input_names=["input"],
     output_names=["output"],
-    opset_version=11
+    opset_version=18,          # ✅ MATCHES PYTORCH
+    dynamic_axes={
+        "input": {0: "batch_size"},
+        "output": {0: "batch_size"}
+    },
+    do_constant_folding=True
 )
 
-print("✅ ONNX model saved at: outputs/cnn_model.onnx")
-print("\n🎉 Visualization complete!")
+print("ONNX model saved at: outputs/mobilenetv2_model.onnx")
+print("MobileNetV2 visualization complete!")

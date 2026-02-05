@@ -1,262 +1,238 @@
 import os
+import time
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
+import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 
-# -----------------
-# GLOBAL CONSTANTS
-# -----------------
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+
+# =========================
+# GLOBAL CONFIG
+# =========================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# MNIST Sign Language label mapping
+# Original labels: 0–25 (A–Z)
+# Missing: J (9), Z (25)
+
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 EPOCHS = 20
+
 IMG_HEIGHT = 28
 IMG_WIDTH = 28
-NUM_CLASSES = 26 
+NUM_CLASSES = 24   # IMPORTANT: J and Z excluded
 
-# Paths
 TRAIN_CSV_PATH = r"c:\Users\smits\Desktop\CL-AI\archive (9)\sign_mnist_train.csv"
-TEST_CSV_PATH = r"c:\Users\smits\Desktop\CL-AI\archive (9)\sign_mnist_test.csv"
+TEST_CSV_PATH  = r"c:\Users\smits\Desktop\CL-AI\archive (9)\sign_mnist_test.csv"
 
-# -----------------
-# DATASET CLASS
-# -----------------
+torch.manual_seed(42)
+np.random.seed(42)
+
+# =========================
+# DATASET
+# =========================
 class SignLanguageDataset(Dataset):
-    def __init__(self, csv_file, transform=None):
-        raw_data = pd.read_csv(csv_file)
-        self.labels = raw_data['label'].values
-        self.pixels = raw_data.iloc[:, 1:].values
-        self.transform = transform
+    def __init__(self, csv_file):
+        data = pd.read_csv(csv_file)
+
+        self.images = data.iloc[:, 1:].values
+        self.labels = data["label"].values
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        label = self.labels[idx]
-        image = self.pixels[idx].reshape(IMG_HEIGHT, IMG_WIDTH).astype(np.float32)
-        image = image / 255.0  # Normalize
-        image = torch.tensor(image).unsqueeze(0) # Add channel dimension (1, 28, 28)
-        return image, torch.tensor(label, dtype=torch.long)
+        image = self.images[idx].reshape(28, 28).astype(np.float32)
+        image = image / 255.0
+        image = torch.tensor(image).unsqueeze(0)
 
-# -----------------
-# MODEL ARCHITECTURE
-# -----------------
+        original_label = int(self.labels[idx])
+
+        # Exclude J (9) and Z (25)
+        LABEL_MAP = {
+            0: 0,   1: 1,   2: 2,   3: 3,   4: 4,
+            5: 5,   6: 6,   7: 7,   8: 8,
+            10: 9,  11: 10, 12: 11, 13: 12, 14: 13,
+            15: 14, 16: 15, 17: 16, 18: 17, 19: 18,
+            20: 19, 21: 20, 22: 21, 23: 22, 24: 23
+        }
+
+        if original_label not in LABEL_MAP:
+            raise ValueError(f"Invalid label found: {original_label}")
+
+        label = torch.tensor(LABEL_MAP[original_label], dtype=torch.long)
+
+        return image, label
+
+
+# =========================
+# MODEL
+# =========================
 class CustomCNN(nn.Module):
-    def __init__(self, num_classes=26):
-        super(CustomCNN, self).__init__()
+    def __init__(self, num_classes=24):
+        super().__init__()
+
         self.features = nn.Sequential(
             # Block 1
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),
+            nn.Conv2d(1, 32, 3, padding=1),
             nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), 
-            
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
             # Block 2
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.Conv2d(32, 64, 3, padding=1),
             nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), 
-            
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
             # Block 3
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.Conv2d(64, 128, 3, padding=1),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
         )
-        
+
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 3 * 3, 512), 
-            nn.ReLU(inplace=True),
+            nn.Linear(128 * 3 * 3, 256),  # lighter FC (ablation-ready)
+            nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(512, num_classes)
+            nn.Linear(256, num_classes)
         )
 
     def forward(self, x):
         x = self.features(x)
-        x = self.classifier(x)
-        return x
+        return self.classifier(x)
 
-# -----------------
-# MAIN EXECUTION
-# -----------------
-if __name__ == "__main__":
+# =========================
+# TRAIN / EVAL FUNCTIONS
+# =========================
+def run_epoch(model, loader, criterion, optimizer=None):
+    is_train = optimizer is not None
+    model.train() if is_train else model.eval()
+
+    total_loss, correct, total = 0, 0, 0
+
+    with torch.set_grad_enabled(is_train):
+        for images, labels in loader:
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
+
+            if is_train:
+                optimizer.zero_grad()
+
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            if is_train:
+                loss.backward()
+                optimizer.step()
+
+            total_loss += loss.item() * images.size(0)
+            _, preds = torch.max(outputs, 1)
+
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+
+    return total_loss / total, correct / total
+
+# =========================
+# MAIN
+# =========================
+def main():
     print(f"Using device: {DEVICE}")
 
-    # 1. CHECK FILES
-    if not os.path.exists(TRAIN_CSV_PATH) or not os.path.exists(TEST_CSV_PATH):
-        print("Error: Dataset files not found.")
-        exit()
-
-    # 2. LOAD DATA
-    full_train_dataset = SignLanguageDataset(TRAIN_CSV_PATH)
-
-    train_size = int(0.8 * len(full_train_dataset))
-    val_size = len(full_train_dataset) - train_size
-    train_dataset, val_dataset = random_split(full_train_dataset, [train_size, val_size])
+    train_dataset_full = SignLanguageDataset(TRAIN_CSV_PATH)
     test_dataset = SignLanguageDataset(TEST_CSV_PATH)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    train_size = int(0.8 * len(train_dataset_full))
+    val_size = len(train_dataset_full) - train_size
 
-    print(f"Training samples: {len(train_dataset)}")
-    print(f"Validation samples: {len(val_dataset)}")
-    print(f"Test samples: {len(test_dataset)}")
+    train_dataset, val_dataset = random_split(
+        train_dataset_full, [train_size, val_size]
+    )
 
-    # 3. VISUALIZE DATA (SAVE TO FILE)
-    try:
-        images, labels = next(iter(train_loader))
-        plt.figure(figsize=(10, 10))
-        plt.suptitle("Sample Images from Training Set")
-        for i in range(9):
-            ax = plt.subplot(3, 3, i + 1)
-            plt.imshow(images[i].squeeze(), cmap='gray')
-            plt.title(f"Label: {labels[i].item()}")
-            plt.axis("off")
-        
-        # CHANGED: Save instead of Show
-        plt.savefig('training_samples.png')
-        plt.close() 
-        print("Graph saved: training_samples.png")
-    except Exception as e:
-        print(f"Visualization skipped: {e}")
+    train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True)
+    val_loader   = DataLoader(val_dataset, BATCH_SIZE, shuffle=False)
+    test_loader  = DataLoader(test_dataset, BATCH_SIZE, shuffle=False)
 
-    # 4. INITIALIZE MODEL
     model = CustomCNN(NUM_CLASSES).to(DEVICE)
-    print("\nModel Architecture Created.")
+
+    # =========================
+    # MODEL STATS (PAPER)
+    # =========================
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params:,}")
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=2)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', patience=2
+    )
 
-    # 5. TRAINING LOOP
-    print("\nStarting model training...")
-    
-    def run_epoch(loader, is_training=True):
-        if is_training:
-            model.train()
-        else:
-            model.eval()
-            
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        
-        with torch.set_grad_enabled(is_training):
-            for images, labels in loader:
-                images, labels = images.to(DEVICE), labels.to(DEVICE)
-                
-                if is_training:
-                    optimizer.zero_grad()
-                
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                
-                if is_training:
-                    loss.backward()
-                    optimizer.step()
-                
-                running_loss += loss.item() * images.size(0)
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-                
-        epoch_loss = running_loss / total
-        epoch_acc = correct / total
-        return epoch_loss, epoch_acc
+    history = {"train_acc": [], "val_acc": []}
 
-    history = {'accuracy': [], 'val_accuracy': [], 'loss': [], 'val_loss': []}
-
+    print("\nTraining started...\n")
     for epoch in range(EPOCHS):
-        train_loss, train_acc = run_epoch(train_loader, is_training=True)
-        val_loss, val_acc = run_epoch(val_loader, is_training=False)
-        
+        train_loss, train_acc = run_epoch(
+            model, train_loader, criterion, optimizer
+        )
+        val_loss, val_acc = run_epoch(
+            model, val_loader, criterion
+        )
+
         scheduler.step(val_acc)
-        
-        history['accuracy'].append(train_acc)
-        history['val_accuracy'].append(val_acc)
-        history['loss'].append(train_loss)
-        history['val_loss'].append(val_loss)
-        
-        print(f"Epoch {epoch+1}/{EPOCHS} | "
-              f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-              f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
 
-    print("Model training complete.")
+        history["train_acc"].append(train_acc)
+        history["val_acc"].append(val_acc)
 
-    # 6. SAVE MODEL
-    print("\nSaving the trained model...")
-    torch.save(model.state_dict(), 'CNN.pth')
-    print("Model saved successfully as 'CNN.pth'")
+        print(
+            f"Epoch [{epoch+1}/{EPOCHS}] "
+            f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}"
+        )
 
-    # 7. EVALUATE ON TEST SET
-    print("\nEvaluating on Test Set...")
-    test_loss, test_acc = run_epoch(test_loader, is_training=False)
-    print(f'Test accuracy: {test_acc * 100:.2f}%')
+    torch.save(model.state_dict(), "custom_cnn.pth")
 
-    # 8. PLOT HISTORY (SAVE TO FILE)
-    try:
-        epochs_range = range(EPOCHS)
-        plt.figure(figsize=(15, 5))
-        
-        plt.subplot(1, 2, 1)
-        plt.plot(epochs_range, history['accuracy'], label='Training Accuracy')
-        plt.plot(epochs_range, history['val_accuracy'], label='Validation Accuracy')
-        plt.legend(loc='lower right')
-        plt.title('Training and Validation Accuracy')
-        plt.grid(True)
-        
-        plt.subplot(1, 2, 2)
-        plt.plot(epochs_range, history['loss'], label='Training Loss')
-        plt.plot(epochs_range, history['val_loss'], label='Validation Loss')
-        plt.legend(loc='upper right')
-        plt.title('Training and Validation Loss')
-        plt.grid(True)
-        
-        # CHANGED: Save instead of Show
-        plt.savefig('training_history.png')
-        plt.close()
-        print("Graph saved: training_history.png")
-    except Exception as e:
-        print(f"Plotting history skipped: {e}")
+    # =========================
+    # TEST EVALUATION
+    # =========================
+    model.eval()
+    y_true, y_pred = [], []
 
-    # 9. VISUALIZE PREDICTIONS (SAVE TO FILE)
-    try:
-        plt.figure(figsize=(10, 10))
-        plt.suptitle("Predictions on Test Images")
-        
-        images, labels = next(iter(test_loader))
-        images = images.to(DEVICE)
-        labels = labels.to(DEVICE)
-        
-        model.eval()
-        with torch.no_grad():
+    start_time = time.time()
+
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images = images.to(DEVICE)
             outputs = model(images)
-            _, predictions = torch.max(outputs, 1)
-        
-        images = images.cpu()
-        labels = labels.cpu()
-        predictions = predictions.cpu()
-        
-        for i in range(9):
-            ax = plt.subplot(3, 3, i + 1)
-            plt.imshow(images[i].squeeze(), cmap='gray')
-            
-            predicted_label = predictions[i].item()
-            true_label = labels[i].item()
-            
-            title_color = 'green' if predicted_label == true_label else 'red'
-            plt.title(f"Pred: {predicted_label}, True: {true_label}", color=title_color)
-            plt.axis("off")
-            
-        # CHANGED: Save instead of Show
-        plt.savefig('test_predictions.png')
-        plt.close()
-        print("Graph saved: test_predictions.png")
-    except Exception as e:
-        print(f"Prediction visualization skipped: {e}")
+            _, preds = torch.max(outputs, 1)
+
+            y_true.extend(labels.numpy())
+            y_pred.extend(preds.cpu().numpy())
+
+    inference_time = time.time() - start_time
+
+    print("\nClassification Report:")
+    print(classification_report(y_true, y_pred, digits=4))
+
+    cm = confusion_matrix(y_true, y_pred)
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, cmap="Blues", fmt="d")
+    plt.title("Confusion Matrix")
+    plt.savefig("confusion_matrix.png")
+    plt.close()
+
+    print(f"Inference time (test set): {inference_time:.2f}s")
+
+# =========================
+# RUN
+# =========================
+if __name__ == "__main__":
+    main()
