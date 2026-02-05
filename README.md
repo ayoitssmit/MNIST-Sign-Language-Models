@@ -1,96 +1,61 @@
-# MNIST Sign Language Detection
+# Project Overview
+This project presents a deep learning solution for the classification of American Sign Language (ASL) gestures. We have developed and trained a Convolutional Neural Network (CNN) to recognize and classify images from the Sign Language MNIST dataset, which contains a collection of grayscale hand gestures representing the alphabet (A-Z, excluding J and Z). The objective was to build an accurate and efficient model capable of identifying these characters, demonstrating a practical application of computer vision and neural networks.
 
-This project implements a deep learning-based system to classify American Sign Language (ASL) hand gestures using the Sign Language MNIST dataset. It features two distinct model architectures: a custom Convolutional Neural Network (CNN) and a fine-tuned MobileNetV2, allowing for performance comparison and deployment flexibility.
+## Dataset
+The model was trained on the Sign Language MNIST dataset, which contains tens of thousands of grayscale images of hand signs. The dataset is structured similarly to the original MNIST dataset, making it suitable for direct use with many standard deep learning workflows.
 
-## Overview
-The system processes grayscale image data to train robust classifiers for 24 distinct hand signs (Letters A-Z, excluding J and Z). It includes a complete pipeline for training, evaluation, validation, and model visualization.
+The dataset is available on Kaggle.
 
-## Key Features
-- **Dual Architecture**:
-  - **Custom CNN**: A lightweight, 3-block architecture optimized for quick training and efficiency.
-  - **MobileNetV2**: A fine-tuned, pre-trained model utilizing transfer learning for enhanced accuracy and feature extraction.
-- **Robustness**: Implements data augmentation (rotation, flipping), batch normalization, and dropout to prevent overfitting.
-- **Visualization Suite**:
-  - Training accuracy and loss curves.
-  - Confusion matrices for detailed error analysis.
-  - Computation graph visualization (`torchviz`).
-  - ONNX model export for interoperability.
+### Sample Images
+Below are examples of the hand gestures from the dataset that the model was trained to classify.
 
-## Data
-- **Dataset**: Sign Language MNIST (28x28 grayscale images).
-- **Classes**: 24 active classes (0-25, excluding 9=J and 25=Z).
-- **Input Processing**: Reshaped to `(1, 28, 28)` for Custom CNN and resized/repeated to `(3, 64, 64)` for MobileNetV2.
+![Sample Images](Results/CNN/training_samples.png)
 
-## Project Structure
-```
-CL-AI/
-├── custom_cnn.py       # Training script for Custom CNN
-├── mobilenetv2.py      # Training script for MobileNetV2 (Fine-tuning)
-├── test_model.py       # Testing & evaluation script (Targeting MobileNetV2)
-├── visualize.py        # Model architecture visualization and ONNX export
-├── custom_cnn.pth      # Saved weights for Custom CNN
-├── mv2slfinal.pth      # Saved weights for MobileNetV2
-├── outputs/            # Generated artifacts (ONNX model, architecture diagrams)
-├── .venv/              # Virtual environment
-└── README.md           # Project documentation
-```
+## Methodology and Implementation
+The core of this project is a CNN built using the PyTorch framework. The implementation process involved several key stages: data preparation, model architecture design, training, and evaluation.
 
-## Installation
+### 1. Data Preparation and Processing
+- **Data Loading**: We utilized a custom `Dataset` class to parse CSV files containing pixel values and labels.
+- **Preprocessing**: The images were reshaped from flat vectors to 28x28 grayscale images. Pixel values were normalized from [0, 255] to [0, 1] to stabilize training.
+- **Augmentation**: Random splitting was used to create a validation set (20%) to monitor performance on unseen data during training.
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/ayoitssmit/MNIST-Sign-Language-Models.git
-   cd MNIST-Sign-Language-Models
-   ```
+### 2. Model Architecture
+We designed a custom sequential CNN model tailored for image classification. The architecture is as follows:
 
-2. **Set up Virtual Environment**:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   ```
+- **Feature Extraction**: Three sequential convolutional blocks extract hierarchical features.
+    - **Block 1**: Conv2d (32 filters) -> BatchNorm -> ReLU -> MaxPool
+    - **Block 2**: Conv2d (64 filters) -> BatchNorm -> ReLU -> MaxPool
+    - **Block 3**: Conv2d (128 filters) -> BatchNorm -> ReLU -> MaxPool
+- **Classification Head**:
+    - **Flatten**: Converts 2D feature maps to a 1D vector.
+    - **Dense Layer**: 256 neurons with ReLU activation.
+    - **Dropout**: Rate of 0.5 to prevent overfitting.
+    - **Output Layer**: 24 neurons (one for each active class) producing class probabilities.
 
-3. **Install Dependencies**:
-   ```bash
-   pip install torch torchvision pandas numpy matplotlib seaborn scikit-learn torchviz torchsummary
-   ```
-   *(Note: `torchviz` requires GraphViz to be installed on your system)*
+![Model Architecture](outputs/CNN/cnn_architecture.png)
 
-## Usage
+### 3. Model Training
+- **Optimization**: The model was optimized using the `Adam` optimizer.
+- **Loss Function**: `CrossEntropyLoss` was used for multi-class classification.
+- **Scheduler**: A learning rate scheduler (`ReduceLROnPlateau`) was employed to adapt the learning rate during training.
+- **Training Loop**: The model was trained for 20 epochs, recording accuracy and loss on both training and validation sets.
 
-### 1. Training Custom CNN
-Trains the custom 3-block CNN from scratch.
-```bash
-python custom_cnn.py
-```
-- **Output**: Saves `custom_cnn.pth`, plots training history and confusion matrix.
+![Training History](Results/CNN/training_history.png)
 
-### 2. Training MobileNetV2
-Fine-tunes a pre-trained MobileNetV2 model.
-```bash
-python mobilenetv2.py
-```
-- **Output**: Saves `mobilenetv2_mnist_sl.pth`, logs detailed metrics.
+## Evaluation and Results
+After training, the model's performance was thoroughly evaluated on the separate, unseen test dataset. The model achieved competitive accuracy, demonstrating its effectiveness in classifying the ASL signs.
 
-### 3. Evaluation & Testing
-Evaluates the trained MobileNetV2 model (`mv2slfinal.pth`) against the test set.
-```bash
-python test_model.py
-```
-- **Output**: Classification report, accuracy metrics, and prediction visualizations (`test_result_mv2.png`).
+### Confusion Matrix
+A confusion matrix was generated to provide a detailed breakdown of the model's performance across all 24 classes. The matrix visualizes the relationship between the true labels and the predictions made by the model.
 
-### 4. Visualization & Export
-Generates a visual representation of the model architecture and exports it to ONNX format.
-```bash
-python visualize.py
-```
-- **Output**: `outputs/mobilenetv2_architecture.png`, `outputs/mobilenetv2_model.onnx`.
+![Confusion Matrix](Results/CNN/confusion_matrix.png)
 
-## Results
-- **Custom CNN**: Balanced performance, lightweight.
-- **MobileNetV2**: Higher accuracy potential due to transfer learning, robust against variations.
+As seen in the matrix, the strong diagonal line indicates a high number of correct predictions.
 
-## Evaluation
-Performance is measured using:
-- **Accuracy**: Overall correct classification percentage.
-- **Cross-Entropy Loss**: Model confidence measure.
-- **Confusion Matrix**: To identify specific class misclassifications.
+### Sample Predictions
+To provide a qualitative assessment, we visualized the model's predictions on a sample of test images. The results below show that the model correctly identifies diverse signs, highlighting its robustness.
+
+![Sample Predictions](Results/CNN/test_result.png)
+
+### Conclusion
+The combination of high test accuracy, a clear confusion matrix, and successful individual predictions confirms that the CNN model is highly effective for this task. The trained model weights were saved as `custom_cnn.pth` for future inference.
